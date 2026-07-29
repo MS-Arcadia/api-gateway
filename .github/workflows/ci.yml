@@ -102,7 +102,7 @@ jobs:
           echo "--- every prefix the frontend calls is routed ---"
           routes=$(curl -fsS localhost:8090/)
           echo "$routes"
-          for prefix in /auth /catalog /orders /wallet /payment /media /notifications; do
+          for prefix in /auth /catalog /orders /wallet /payment /media /notifications /marketplace; do
             echo "$routes" | grep -q "\"$prefix\"" || { echo "$prefix is not routed"; exit 1; }
           done
 

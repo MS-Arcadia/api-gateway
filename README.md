@@ -1,6 +1,6 @@
 # api-gateway
 
-Arcadia's single public entry point. One origin in front of seven services.
+Arcadia's single public entry point. One origin in front of eight services.
 
 ```
                         ┌──────────────────────────────┐
@@ -62,6 +62,7 @@ internal addresses are configured.
 | `/payment` | payment-service |
 | `/media` | media-service |
 | `/notifications` | notification-service |
+| `/marketplace` | marketplace-service |
 
 `GET /` answers with this table as JSON — "which prefix goes where" is the first
 question anybody debugging this asks, and the alternative is reading a compose
