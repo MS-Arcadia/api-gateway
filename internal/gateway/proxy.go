@@ -72,6 +72,21 @@ func NewProxy(table *Table, logger *slog.Logger, timeout time.Duration) *Proxy {
 					r.Out.Header.Set(HeaderCorrelationID, id)
 				}
 			},
+			ModifyResponse: func(response *http.Response) error {
+				// The services set this header on their own responses too, and
+				// ReverseProxy *appends* the upstream's headers onto a ResponseWriter
+				// that the Correlation middleware has already written one to. The result
+				// is a response carrying two X-Correlation-Id values, and a client
+				// reading "the" correlation id gets whichever its HTTP library returns
+				// first.
+				//
+				// Dropping the upstream's copy leaves the gateway's, which is the id the
+				// access log recorded and therefore the one worth quoting in a bug
+				// report. Setting it here instead would not work: it would be appended
+				// to the middleware's, not replace it.
+				response.Header.Del(HeaderCorrelationID)
+				return nil
+			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 				// A dead upstream is 503 and names the service, because "the store is
 				// down" and "the wallet is down" need different people. 502 would be

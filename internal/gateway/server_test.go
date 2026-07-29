@@ -143,6 +143,36 @@ func TestARateLimitedRequestStillCarriesCORSHeaders(t *testing.T) {
 		"a 429 has to be readable by the page that caused it")
 }
 
+func TestAProxiedResponseCarriesExactlyOneCorrelationID(t *testing.T) {
+	// Every Arcadia service stamps this header on its own responses, and ReverseProxy
+	// *appends* the upstream's headers onto a ResponseWriter the Correlation middleware
+	// has already written one to. Without dropping the upstream's copy the client gets
+	// two values and reads whichever its HTTP library returns first — which, when a
+	// service generates its own id rather than echoing ours, is the id that appears in
+	// nobody's logs.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(gateway.HeaderCorrelationID, "a-different-id-from-the-service")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	front := serve(t, gateway.Targets{"catalog-service": upstream.URL})
+
+	request, err := http.NewRequest(http.MethodGet, front.URL+"/catalog/v1/games", nil)
+	require.NoError(t, err)
+	request.Header.Set(gateway.HeaderCorrelationID, "the-id-the-gateway-logged")
+
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer func() { _ = response.Body.Close() }()
+
+	require.Len(t, response.Header.Values(gateway.HeaderCorrelationID), 1,
+		"a client reading one header must not have to choose between two answers")
+	require.Equal(t, "the-id-the-gateway-logged",
+		response.Header.Get(gateway.HeaderCorrelationID),
+		"the surviving id must be the one the access log recorded")
+}
+
 func TestEveryResponseCarriesACorrelationID(t *testing.T) {
 	// Including the failures. An error a client cannot quote an id for is an error
 	// nobody can find in eight services' logs.
