@@ -1,0 +1,18 @@
+# Everything the image does not need. A smaller context is a faster build and a
+# smaller attack surface.
+.git
+.github
+*.md
+Makefile
+Dockerfile
+.dockerignore
+.env
+.env.*
+coverage.out
+bin/
+
+# NOTE: unlike the other Arcadia services, this file does *not* exclude
+# `**/*_test.go`. The Dockerfile runs `go test ./...` inside the build stage, and
+# excluding the test files would make that step pass with zero tests — a green
+# build that proved nothing. If the test step is ever removed from the Dockerfile,
+# add the exclusion back.

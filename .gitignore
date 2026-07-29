@@ -1,0 +1,26 @@
+# Build output
+bin/
+dist/
+*.exe
+
+# Test and coverage artefacts
+coverage.out
+coverage.html
+*.test
+*.prof
+
+# Local configuration. Never commit a real JWT secret.
+.env
+.env.local
+.env.*.local
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Go workspace files are a local convenience and would override the committed
+# module graph for anyone else.
+go.work
+go.work.sum
