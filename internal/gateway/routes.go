@@ -50,6 +50,9 @@ const (
 	PrefixMedia         = "/media"
 	PrefixNotifications = "/notifications"
 	PrefixMarketplace   = "/marketplace"
+	PrefixReviews       = "/reviews"
+	PrefixFestivals     = "/festivals"
+	PrefixCommunity     = "/community"
 )
 
 // prefixFor maps a service name to its public prefix. Kept beside the constants
@@ -63,6 +66,9 @@ var prefixFor = map[string]string{
 	"media-service":        PrefixMedia,
 	"notification-service": PrefixNotifications,
 	"marketplace-service":  PrefixMarketplace,
+	"review-service":       PrefixReviews,
+	"festival-service":     PrefixFestivals,
+	"community-service":    PrefixCommunity,
 }
 
 // NewTable builds a routing table from service name to base URL.

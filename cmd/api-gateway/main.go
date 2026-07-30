@@ -1,6 +1,6 @@
 // Command api-gateway is Arcadia's single public entry point.
 //
-// It routes one origin onto eight services, and does four things on the way:
+// It routes one origin onto eleven services, and does four things on the way:
 // correlation ids, CORS, rate limiting, and rejecting a malformed token before it
 // costs a service anything.
 //

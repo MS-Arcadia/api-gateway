@@ -1,6 +1,6 @@
 # api-gateway
 
-Arcadia's single public entry point. One origin in front of eight services.
+Arcadia's single public entry point. One origin in front of eleven services.
 
 ```
                         ┌──────────────────────────────┐
@@ -14,7 +14,8 @@ Arcadia's single public entry point. One origin in front of eight services.
  auth-profile    catalog         order           wallet          payment
    :8085          :8082          :8083            :8080           :8081
                                     │
-                            media :8084 · notification :8086
+      media :8084 · notification :8086 · marketplace :8087
+      review :8088 · festival :8089 · community :8091
 ```
 
 ## What it does
@@ -22,8 +23,8 @@ Arcadia's single public entry point. One origin in front of eight services.
 | | |
 |---|---|
 | **Routing** | Strips a prefix and forwards to the service that owns it. |
-| **Correlation** | Stamps a UUIDv7 on every request and returns it, so one id follows a call through eight services' logs. |
-| **CORS** | An allow-list, so the browser can talk to one origin instead of seven. |
+| **Correlation** | Stamps a UUIDv7 on every request and returns it, so one id follows a call through eleven services' logs. |
+| **CORS** | An allow-list, so the browser can talk to one origin instead of eleven. |
 | **Rate limiting** | A per-address token bucket, so one client cannot exhaust the platform. |
 | **Token check** | Rejects a *malformed* token at the edge, before it costs a service a database round-trip. |
 
@@ -63,6 +64,9 @@ internal addresses are configured.
 | `/media` | media-service |
 | `/notifications` | notification-service |
 | `/marketplace` | marketplace-service |
+| `/reviews` | review-service |
+| `/festivals` | festival-service |
+| `/community` | community-service |
 
 `GET /` answers with this table as JSON — "which prefix goes where" is the first
 question anybody debugging this asks, and the alternative is reading a compose
@@ -125,7 +129,7 @@ the same shape every other Arcadia service returns:
 | `UPSTREAM_TIMEOUT` | 504 | The service took longer than `UPSTREAM_TIMEOUT`. |
 
 The upstream is named in the detail deliberately: "503 Service Unavailable" with
-nothing else sends whoever is on call to read seven sets of logs.
+nothing else sends whoever is on call to read eleven sets of logs.
 
 ## Middleware order
 

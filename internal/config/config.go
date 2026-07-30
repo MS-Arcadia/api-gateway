@@ -57,6 +57,9 @@ func Load() (Config, error) {
 			"media-service":        env.String("MEDIA_SERVICE_URL", "http://media-service:8084"),
 			"notification-service": env.String("NOTIFICATION_SERVICE_URL", "http://notification-service:8086"),
 			"marketplace-service":  env.String("MARKETPLACE_SERVICE_URL", "http://marketplace-service:8087"),
+			"review-service":       env.String("REVIEW_SERVICE_URL", "http://review-service:8088"),
+			"festival-service":     env.String("FESTIVAL_SERVICE_URL", "http://festival-service:8089"),
+			"community-service":    env.String("COMMUNITY_SERVICE_URL", "http://community-service:8091"),
 		},
 
 		CORSOrigins:        env.Strings("CORS_ORIGINS", []string{"http://localhost:3000"}),
