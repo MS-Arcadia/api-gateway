@@ -57,6 +57,21 @@ func observeUpstreamFailure(upstream string) { upstreamFailures.WithLabelValues(
 func observeRateLimited()                    { rateLimited.Inc() }
 func observeTokenRejected()                  { tokensRejected.Inc() }
 
+// observable is the set of path prefixes allowed to become their own time series:
+// every prefix the gateway routes, plus the gateway's own endpoints.
+//
+// Derived from prefixFor rather than listed again. A second hand-maintained list
+// does not fail loudly when it falls behind — it silently buckets the missing
+// service into "other", which is what had happened to all five services added
+// after this function was first written.
+var observable = func() map[string]bool {
+	set := map[string]bool{"/livez": true, "/readyz": true, "/metrics": true, "/": true}
+	for _, prefix := range prefixFor {
+		set[prefix] = true
+	}
+	return set
+}()
+
 // prefixOf reduces a path to its first segment, and only if it is one this gateway
 // actually routes. Anything else collapses to "other", so a scanner probing random
 // paths cannot create time series.
@@ -66,15 +81,10 @@ func prefixOf(path string) string {
 	if index := strings.Index(trimmed, "/"); index >= 0 {
 		first = trimmed[:index]
 	}
-	switch "/" + first {
-	case PrefixAuth, PrefixCatalog, PrefixOrders, PrefixWallet,
-		PrefixPayment, PrefixMedia, PrefixNotifications:
-		return "/" + first
-	case "/livez", "/readyz", "/metrics", "/":
-		return "/" + first
-	default:
-		return "other"
+	if candidate := "/" + first; observable[candidate] {
+		return candidate
 	}
+	return "other"
 }
 
 // statusClass buckets a status into 2xx/4xx/5xx. The exact code is in the access
