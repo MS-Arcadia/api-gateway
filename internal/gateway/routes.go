@@ -42,33 +42,35 @@ type Targets map[string]string
 // existed is what makes the switch from its mock to this gateway one environment
 // variable rather than a rewrite of every call site.
 const (
-	PrefixAuth          = "/auth"
-	PrefixCatalog       = "/catalog"
-	PrefixOrders        = "/orders"
-	PrefixWallet        = "/wallet"
-	PrefixPayment       = "/payment"
-	PrefixMedia         = "/media"
-	PrefixNotifications = "/notifications"
-	PrefixMarketplace   = "/marketplace"
-	PrefixReviews       = "/reviews"
-	PrefixFestivals     = "/festivals"
-	PrefixCommunity     = "/community"
+	PrefixAuth            = "/auth"
+	PrefixCatalog         = "/catalog"
+	PrefixOrders          = "/orders"
+	PrefixWallet          = "/wallet"
+	PrefixPayment         = "/payment"
+	PrefixMedia           = "/media"
+	PrefixNotifications   = "/notifications"
+	PrefixMarketplace     = "/marketplace"
+	PrefixReviews         = "/reviews"
+	PrefixFestivals       = "/festivals"
+	PrefixCommunity       = "/community"
+	PrefixRecommendations = "/recommendations"
 )
 
 // prefixFor maps a service name to its public prefix. Kept beside the constants
 // so adding a service is one edit rather than two that can disagree.
 var prefixFor = map[string]string{
-	"auth-profile-service": PrefixAuth,
-	"catalog-service":      PrefixCatalog,
-	"order-service":        PrefixOrders,
-	"wallet-service":       PrefixWallet,
-	"payment-service":      PrefixPayment,
-	"media-service":        PrefixMedia,
-	"notification-service": PrefixNotifications,
-	"marketplace-service":  PrefixMarketplace,
-	"review-service":       PrefixReviews,
-	"festival-service":     PrefixFestivals,
-	"community-service":    PrefixCommunity,
+	"auth-profile-service":   PrefixAuth,
+	"catalog-service":        PrefixCatalog,
+	"order-service":          PrefixOrders,
+	"wallet-service":         PrefixWallet,
+	"payment-service":        PrefixPayment,
+	"media-service":          PrefixMedia,
+	"notification-service":   PrefixNotifications,
+	"marketplace-service":    PrefixMarketplace,
+	"review-service":         PrefixReviews,
+	"festival-service":       PrefixFestivals,
+	"community-service":      PrefixCommunity,
+	"recommendation-service": PrefixRecommendations,
 }
 
 // NewTable builds a routing table from service name to base URL.
