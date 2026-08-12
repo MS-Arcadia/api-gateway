@@ -58,13 +58,23 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			started := time.Now()
+
+			// Put the configured logger on the context, so this line and anything
+			// logged further down the chain carry the correlation id Correlation
+			// just minted. Without it slog.InfoContext passes the context to a
+			// handler that ignores it, and the id — propagated in the header,
+			// returned to the caller, forwarded upstream — appeared in no log line
+			// the gateway itself wrote.
+			ctx := logx.WithLogger(r.Context(), logger)
+			r = r.WithContext(ctx)
+
 			recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(recorder, r)
 
 			// The path is logged, the query string is not: a query can carry a search
 			// term or an email, and an access log is the least protected place on the
 			// platform.
-			logger.InfoContext(r.Context(), "request",
+			logx.FromContext(ctx).InfoContext(ctx, "request",
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status", recorder.status,
@@ -316,7 +326,7 @@ func VerifyToken(verifier *authn.Verifier, logger *slog.Logger) func(http.Handle
 				// The verifier's own reason codes are kept: they are the same ones the
 				// services return, so a client cannot tell — and does not need to —
 				// whether the refusal came from here or from behind here.
-				logger.DebugContext(r.Context(), "token refused at the edge",
+				logx.FromContext(r.Context()).DebugContext(r.Context(), "token refused at the edge",
 					"path", r.URL.Path, "error", err.Error())
 				observeTokenRejected()
 				errs.WriteProblem(w, err, logx.CorrelationID(r.Context()))
@@ -324,7 +334,7 @@ func VerifyToken(verifier *authn.Verifier, logger *slog.Logger) func(http.Handle
 			}
 
 			// The subject is logged, the token is not.
-			logger.DebugContext(r.Context(), "token accepted",
+			logx.FromContext(r.Context()).DebugContext(r.Context(), "token accepted",
 				"subject", principal.UserID, "role", string(principal.Role))
 			next.ServeHTTP(w, r)
 		})

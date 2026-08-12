@@ -1,7 +1,9 @@
 package gateway_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -423,4 +425,29 @@ func TestTheCorrelationIDTravelsToTheUpstream(t *testing.T) {
 
 	require.NotEmpty(t, catalog.correlationID,
 		"the service has to receive the id to stamp it on its own log lines")
+}
+
+func TestTheAccessLogCarriesTheCorrelationID(t *testing.T) {
+	// The regression this exists for: the id was minted, echoed to the caller and
+	// forwarded upstream, and appeared in no line the gateway itself wrote —
+	// because the access log used a logger that ignores the context. Every test
+	// above still passed, since each checked a header rather than the log.
+	var captured bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&captured, nil))
+
+	handler := gateway.Chain(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
+		gateway.Correlation,
+		gateway.AccessLog(logger),
+	)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/catalog/v1/games", nil)
+	request.Header.Set(gateway.HeaderCorrelationID, "8f14e45f-ceea-467a-9f0e-1c4d2e6a1b3c")
+	handler.ServeHTTP(recorder, request)
+
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(captured.Bytes(), &line))
+	require.Equal(t, "8f14e45f-ceea-467a-9f0e-1c4d2e6a1b3c", line["correlation_id"],
+		"the access log has to carry the id, or a request cannot be followed from the edge")
 }
