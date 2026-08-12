@@ -155,6 +155,12 @@ jobs:
           # A pull request gets its image built — proving the Dockerfile still
           # works — but never pushed.
           push: ${{ github.event_name != 'pull_request' }}
+          # Pinned rather than left to the runner's native arch: `go build` in the
+          # Dockerfile has no GOARCH set, so it compiles for whatever the buildx
+          # host reports, and an image built on an arm64 runner crashed every
+          # amd64 deployer with "exec format error" — the other services either
+          # don't cross-compile a binary or already build multi-arch.
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ github.ref_name }}
