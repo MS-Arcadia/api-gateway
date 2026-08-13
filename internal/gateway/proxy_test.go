@@ -161,3 +161,66 @@ func TestAnUpstreamsStatusAndBodyAreNotRewritten(t *testing.T) {
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	require.JSONEq(t, `{"reason":"ALREADY_OWNED","status":409}`, recorder.Body.String())
 }
+
+// --- redirects ------------------------------------------------------------
+
+// redirectingSpy answers 307 with whatever Location it is given, the way FastAPI's
+// trailing-slash redirect does.
+func redirectingSpy(t *testing.T, location func(baseURL string) string) *httptest.Server {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", location(server.URL))
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestARedirectToTheServiceItselfComesBackAsAPublicPath(t *testing.T) {
+	// review-service declares one route as POST "/" under an /api/reviews prefix, so a
+	// request without the trailing slash is answered with an absolute redirect built from
+	// the host it was addressed by — its cluster name. A browser cannot follow that.
+	review := redirectingSpy(t, func(base string) string { return base + "/api/reviews/" })
+	proxy := proxyTo(t, gateway.Targets{"review-service": review.URL})
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/reviews/api/reviews", nil))
+
+	require.Equal(t, http.StatusTemporaryRedirect, recorder.Code)
+	require.Equal(t, "/reviews/api/reviews/", recorder.Header().Get("Location"),
+		"the caller must be sent back through the gateway, never to an internal host")
+}
+
+func TestARelativeRedirectKeepsTheServicesPrefix(t *testing.T) {
+	review := redirectingSpy(t, func(string) string { return "/api/reviews/" })
+	proxy := proxyTo(t, gateway.Targets{"review-service": review.URL})
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/reviews/api/reviews", nil))
+
+	require.Equal(t, "/reviews/api/reviews/", recorder.Header().Get("Location"))
+}
+
+func TestARedirectSomewhereElseIsLeftAlone(t *testing.T) {
+	// An OAuth handoff or a link to another site is not ours to rewrite, and a gateway
+	// that rewrote it would break it.
+	elsewhere := "https://accounts.example.com/authorize?client_id=arcadia"
+	review := redirectingSpy(t, func(string) string { return elsewhere })
+	proxy := proxyTo(t, gateway.Targets{"review-service": review.URL})
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/reviews/api/reviews", nil))
+
+	require.Equal(t, elsewhere, recorder.Header().Get("Location"))
+}
+
+func TestAQueryStringSurvivesTheRewrite(t *testing.T) {
+	review := redirectingSpy(t, func(base string) string { return base + "/api/reviews/?page=2" })
+	proxy := proxyTo(t, gateway.Targets{"review-service": review.URL})
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/reviews/api/reviews", nil))
+
+	require.Equal(t, "/reviews/api/reviews/?page=2", recorder.Header().Get("Location"))
+}

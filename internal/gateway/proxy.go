@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/MS-Arcadia/api-gateway/internal/platform/errs"
@@ -85,6 +87,24 @@ func NewProxy(table *Table, logger *slog.Logger, timeout time.Duration) *Proxy {
 				// report. Setting it here instead would not work: it would be appended
 				// to the middleware's, not replace it.
 				response.Header.Del(HeaderCorrelationID)
+
+				// A redirect must point somewhere the caller can actually reach.
+				//
+				// A service builds `Location` from the host it was addressed by, which is
+				// its cluster name — so FastAPI's trailing-slash redirect on one review
+				// route answered `http://review-service:8088/api/reviews/`. A browser on
+				// https://arcadia.aptcodegen.online follows that to an address that does
+				// not resolve, over a scheme the page will not allow, and posting a review
+				// fails in a way that looks like nothing at all.
+				//
+				// Rewriting it back through this gateway keeps the public origin the only
+				// address a client ever sees, and stops every 3xx from advertising an
+				// internal hostname and port to whoever asked.
+				if location := response.Header.Get("Location"); location != "" {
+					if rewritten, ok := publicLocation(location, up); ok {
+						response.Header.Set("Location", rewritten)
+					}
+				}
 				return nil
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -146,3 +166,43 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Table exposes the routing table, for the health checks and the root index.
 func (p *Proxy) Table() *Table { return p.table }
+
+// publicLocation turns an upstream's redirect target back into a public one.
+//
+// Only two forms are touched, and both are the service pointing at itself:
+//
+//	http://review-service:8088/api/reviews/  ->  /reviews/api/reviews/
+//	/api/reviews/                            ->  /reviews/api/reviews/
+//
+// The result is relative on purpose. The gateway knows which prefix a service answers but
+// not the scheme or hostname the caller reached it by — that is the ingress's business, and
+// guessing it wrong is how a redirect lands on http from an https page. A relative Location
+// is resolved by the client against the origin it actually used, which is always right.
+//
+// Anything else — a redirect to another site, an OAuth handoff — is returned untouched. A
+// gateway that rewrote those would break them.
+func publicLocation(location string, up Upstream) (string, bool) {
+	target, err := url.Parse(location)
+	if err != nil {
+		return "", false
+	}
+
+	switch {
+	case target.Host == up.Target.Host:
+		// Absolute, and addressed to the upstream by its internal name.
+	case target.Host == "" && strings.HasPrefix(target.Path, "/"):
+		// Root-relative, so it is a path on the upstream by definition.
+	default:
+		return "", false
+	}
+
+	if !up.StripPrefix {
+		return "", false
+	}
+
+	rewritten := *target
+	rewritten.Scheme = ""
+	rewritten.Host = ""
+	rewritten.Path = up.Prefix + target.Path
+	return rewritten.String(), true
+}
