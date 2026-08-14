@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,4 +224,66 @@ func TestAQueryStringSurvivesTheRewrite(t *testing.T) {
 	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/reviews/api/reviews", nil))
 
 	require.Equal(t, "/reviews/api/reviews/?page=2", recorder.Header().Get("Location"))
+}
+
+// --- protocol upgrades ----------------------------------------------------
+
+// echoUpgrader is the smallest thing that answers a WebSocket handshake: it hijacks the
+// connection and writes the 101 itself, which is exactly what a real upstream does.
+func echoUpgrader(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		conn, buffered, err := hijacker.Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = buffered.WriteString("HTTP/1.1 101 Switching Protocols\r\n" +
+			"Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = buffered.Flush()
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// The gateway wraps every ResponseWriter to record the status for the access log, and a
+// wrapper hides the interfaces the original implemented. Without http.Hijacker on that
+// wrapper ReverseProxy cannot take the connection over, and answers
+//
+//	can't switch protocols using non-Hijacker ResponseWriter type *gateway.statusRecorder
+//
+// which means no WebSocket crosses this gateway at all. auth-profile-service has served
+// presence over one since it was written, so every profile on the platform read "Away".
+func TestAWebSocketUpgradeCrossesTheGateway(t *testing.T) {
+	upstream := echoUpgrader(t)
+	proxy := proxyTo(t, gateway.Targets{"auth-profile-service": upstream.URL})
+
+	// A real server, because httptest.NewRecorder cannot be hijacked — the very thing
+	// under test. This is the one case a recorder cannot stand in for.
+	front := httptest.NewServer(gateway.AccessLog(logx.NewNop())(proxy))
+	defer front.Close()
+
+	request, err := http.NewRequest(http.MethodGet, front.URL+"/auth/ws/presence", nil)
+	require.NoError(t, err)
+	request.Header.Set("Connection", "Upgrade")
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("Sec-WebSocket-Version", "13")
+	request.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	response, err := http.DefaultTransport.RoundTrip(request)
+	require.NoError(t, err)
+	defer func() { _ = response.Body.Close() }()
+
+	require.Equal(t, http.StatusSwitchingProtocols, response.StatusCode,
+		"the upgrade must reach the service, not be refused by the access log's wrapper")
+	require.Equal(t, "websocket", strings.ToLower(response.Header.Get("Upgrade")))
 }

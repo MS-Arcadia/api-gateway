@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"bufio"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -103,6 +105,41 @@ func (s *statusRecorder) WriteHeader(status int) {
 func (s *statusRecorder) Write(b []byte) (int, error) {
 	s.written = true
 	return s.ResponseWriter.Write(b)
+}
+
+// Hijack hands the raw connection to whoever asked for it.
+//
+// Wrapping a ResponseWriter hides every interface the original also implemented, and
+// http.Hijacker is the one that matters here: ReverseProxy takes the connection over to
+// upgrade it, and without this it finds a writer that cannot be hijacked and answers
+//
+//	can't switch protocols using non-Hijacker ResponseWriter type *gateway.statusRecorder
+//
+// So no WebSocket could cross this gateway at all. auth-profile-service has served
+// presence over one from the beginning, which is why every profile on the platform said
+// "Away" — including your own, while you were looking at it.
+//
+// The status is recorded as 101 before handing over, because after the upgrade this
+// connection is no longer HTTP and nothing further will be written through the recorder.
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := s.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("gateway: the underlying ResponseWriter cannot be hijacked")
+	}
+	s.status = http.StatusSwitchingProtocols
+	s.written = true
+	return hijacker.Hijack()
+}
+
+// Flush passes a flush through to the real writer.
+//
+// Server-sent events and any streamed response need it for the same reason as above: the
+// wrapper would otherwise swallow the capability and the client would receive nothing
+// until the handler returned.
+func (s *statusRecorder) Flush() {
+	if flusher, ok := s.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // CORS answers preflights and marks responses for the browser.
