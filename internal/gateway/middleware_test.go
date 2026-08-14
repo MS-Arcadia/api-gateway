@@ -268,6 +268,31 @@ func TestAPreflightFromAnUnknownOriginIsRefused(t *testing.T) {
 	require.Contains(t, problem.Detail, "https://evil.example")
 }
 
+func TestEveryMethodThePlatformServesIsAllowed(t *testing.T) {
+	// The allow-list drifted from what the services actually serve: PUT was missing,
+	// so a browser's preflight for `PUT /community/v1/posts/{id}/reactions` came back
+	// without it and every reaction — and every review edit — failed as an opaque
+	// "CORS error" that names neither the method nor this middleware.
+	//
+	// These are the methods the platform's routes are declared with. A new one here
+	// means a new one in the header, and this test is the reminder.
+	next, _ := reached()
+	handler := gateway.CORS([]string{"http://localhost:3000"})(next)
+
+	request := httptest.NewRequest(http.MethodOptions, "/community/v1/posts/p-1/reactions", nil)
+	request.Header.Set("Origin", "http://localhost:3000")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPut)
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	allowed := recorder.Header().Get("Access-Control-Allow-Methods")
+	for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
+		require.Contains(t, allowed, method,
+			"%s is served by the platform and must survive a preflight", method)
+	}
+}
+
 func TestTheOriginIsEchoedNotWildcarded(t *testing.T) {
 	// `*` plus a bearer token means any page on the internet can call this API with a
 	// phished token and the browser will allow it.

@@ -125,7 +125,13 @@ func CORS(allowed []string) func(http.Handler) http.Handler {
 				// Vary, because a cache that stored one origin's response and served
 				// it to another would defeat the allow-list entirely.
 				w.Header().Add("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+				// PUT is here because the platform serves it: review-service edits a
+				// review with it and community-service sets a reaction with it. It was
+				// missing, so the browser's preflight came back without it and every
+				// reaction and review edit died as an opaque "CORS error" — a failure
+				// that names neither the method nor this file.
+				w.Header().Set("Access-Control-Allow-Methods",
+					"GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers",
 					strings.Join([]string{
 						"Authorization", "Content-Type", "Idempotency-Key",
