@@ -46,6 +46,78 @@ is a cheap first filter in front of that, not a replacement for it.
 So: a request with no token reaches the service. A request with a *broken* token
 never does.
 
+## Architecture
+
+```mermaid
+graph TB
+    browser["Browser"] --> ing["Traefik Ingress<br/>TLS"]
+    ing --> gw
+
+    subgraph gw["api-gateway · 3 replicas"]
+        mw["Middleware chain"]
+        table["<b>Routing table</b><br/>prefix → upstream<br/>longest match wins"]
+        proxies["<b>One ReverseProxy<br/>per upstream</b><br/>shared transport"]
+        mw --> table --> proxies
+    end
+
+    proxies --> auth["auth"] & cat["catalog"] & ord["orders"] & wal["wallet"] & pay["payment"]
+    proxies --> med["media"] & notif["notifications"] & mk["marketplace"]
+    proxies --> rev["reviews"] & fest["festivals"] & comm["community"] & reco["recommendations"]
+
+    classDef g fill:#2d7dd2,stroke:#1a5a9e,color:#fff
+    classDef s fill:#5b9bd5,stroke:#3d7ab5,color:#fff
+    classDef e fill:#4d4d4d,stroke:#333,color:#fff
+    class mw,table,proxies g
+    class auth,cat,ord,wal,pay,med,notif,mk,rev,fest,comm,reco s
+    class browser,ing e
+```
+
+One `ReverseProxy` per upstream rather than one instance with a switching director: the
+per-upstream error handler is what turns a dead service into a 503 that *names the service*,
+and a shared director would lose that. They share a transport, so connection pooling is
+platform-wide rather than per-service.
+
+## Use cases
+
+| # | Use case | Notes |
+|---|---|---|
+| 1 | Route a request to the service that owns its prefix | Longest prefix wins; the prefix is stripped before forwarding |
+| 2 | Mint or propagate a correlation id | One id per request, echoed to the caller and forwarded to the service |
+| 3 | Answer CORS preflights | An allow-list, never `*` |
+| 4 | Rate-limit a client | Before token verification, so garbage costs a map lookup |
+| 5 | Reject a malformed or expired token | Verifies **if present**; absence passes through untouched |
+| 6 | Report an unreachable upstream | 503 naming the service, not a bare 502 |
+| 7 | Rewrite a redirect back through itself | So no internal hostname ever reaches a browser |
+| 8 | Proxy a WebSocket upgrade | The presence socket needs it |
+| 9 | List its own routes | `GET /` — the routing table, for diagnosis |
+| 10 | Report health | `/livez`, `/readyz`, `/metrics` |
+
+## How it talks to the rest of the platform
+
+| Direction | Peer | Why |
+|---|---|---|
+| Called by | the storefront and any API client | The single public origin |
+| Calls out | all twelve prefixed services | Plain HTTP inside the cluster |
+| Publishes / consumes | *nothing* | It has no database and no broker connection. Losing it costs availability, never data |
+
+A service missing from its configuration is a **startup error**, not a silently absent
+route: a gateway that starts with eleven of twelve upstreams answers 404 for a twelfth of
+the platform, and does so looking perfectly healthy.
+
+## Infrastructure
+
+| Concern | Choice |
+|---|---|
+| Language | Go 1.24, `net/http` only |
+| State | None — no database, no cache, no broker |
+| Image | `scratch`, ~9 MB, no shell |
+| Health | The binary answers its own check — there is no `curl` in the image |
+| Port | 8090 |
+| Deployment | **3 replicas**, HPA to 10 at 70% CPU |
+
+Three replicas is the floor because this is the single entry point: one pod restarting must
+not be an outage.
+
 ## Routes
 
 The prefix each service is reached under is fixed in
@@ -135,8 +207,20 @@ nothing else sends whoever is on call to read eleven sets of logs.
 
 The order is the design, not an accident of assembly:
 
-```
-Correlation → AccessLog → CORS → RateLimit → VerifyToken → proxy
+```mermaid
+graph LR
+    req["Request"] --> c["<b>Correlation</b><br/>mint or reuse an id"]
+    c --> a["<b>AccessLog</b><br/>times everything below"]
+    a --> co["<b>CORS</b><br/>allow-list, preflight"]
+    co --> rl["<b>RateLimit</b><br/>per client"]
+    rl --> vt["<b>VerifyToken</b><br/>only if one is present"]
+    vt --> px["<b>Proxy</b><br/>longest prefix, strip, forward"]
+    px --> up["Upstream service"]
+
+    classDef m fill:#2d7dd2,stroke:#1a5a9e,color:#fff
+    classDef e fill:#4d4d4d,stroke:#333,color:#fff
+    class c,a,co,rl,vt,px m
+    class req,up e
 ```
 
 - **Correlation first**, so every line below it — including a rate-limit refusal —
